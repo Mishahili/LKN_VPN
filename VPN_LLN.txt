@@ -1,0 +1,290 @@
+import os
+import string
+import random
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.utils import executor
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(bot)
+
+# Фразы прощания
+FAREWELL_PHRASES = [
+    "Обращайтесь снова! 😊",
+    "Спасибо, что выбрали LKN VPN!",
+    "Удачного дня! 🚀",
+    "Всегда рады помочь!",
+    "Будьте на связи! 📡",
+    "VPN с любовью от LKN 💙",
+]
+
+# Меню
+main_menu = ReplyKeyboardMarkup(resize_keyboard=True)
+main_menu.add(
+    KeyboardButton("Как подключить VPN"),
+    KeyboardButton("Не работает VPN"),
+)
+main_menu.add(
+    KeyboardButton("Сбор ip, логов"),
+    KeyboardButton("Когда платная подписка"),
+)
+main_menu.add(
+    KeyboardButton("Предложить инновации"),
+    KeyboardButton("Как работает РФ сервер"),
+)
+
+device_menu = ReplyKeyboardMarkup(resize_keyboard=True)
+device_menu.add("Android", "MacOS", "Windows", "IOS")
+
+server_menu = ReplyKeyboardMarkup(resize_keyboard=True)
+server_menu.add("Россия 🇷🇺", "Нидерланды 🇳🇱")
+
+countries_list = ["Украина", "Россия", "США", "Великобритания", "Казахстан", "Беларусь", "Нет моей страны"]
+countries_menu = ReplyKeyboardMarkup(resize_keyboard=True)
+countries_menu.add(*countries_list)
+
+resolve_menu = ReplyKeyboardMarkup(resize_keyboard=True)
+resolve_menu.add("Решено", "Не решено")
+
+contact_manager_kb = ReplyKeyboardMarkup(resize_keyboard=True)
+contact_manager_kb.add("Связаться с менеджером")
+
+# Состояния пользователей
+user_states = {}
+
+# Заявки менеджеру: код -> данные
+tickets = {}
+
+WELCOME_TEXT = (
+    "🔐 Добро пожаловать в официальную поддержку LKN VPN!\n\n"
+    "Я решаю типичные проблемы за 60 секунд:\n"
+    "• Ошибки подключения\n"
+    "• Низкая скорость\n"
+    "• Настройка на устройствах\n"
+    "• Вопросы о безопасности\n\n"
+    "📌 Просто опишите проблему! Примеры:\n"
+    "\"Не подключается к VPN\"\n"
+    "\"Как установить на iOS?\"\n"
+    "\"Проверить пинг серверов\"\n\n"
+    "⚠️ Сложные вопросы передаю менеджеру\n"
+    "⏱ Среднее время реакции: 2 минуты\n"
+    "🛡 Ваш быстрый и бесплатный VPN - LKN!"
+)
+
+def generate_ticket_code(length=6):
+    chars = string.ascii_uppercase + string.digits
+    return ''.join(random.choice(chars) for _ in range(length))
+
+@dp.message_handler(commands=['start'])
+async def cmd_start(message: types.Message):
+    user_states[message.from_user.id] = {}
+    await message.answer(WELCOME_TEXT, reply_markup=main_menu)
+
+@dp.message_handler()
+async def main_handler(message: types.Message):
+    user_id = message.from_user.id
+    text = message.text
+    state = user_states.get(user_id, {})
+
+    # Обработка оценки после ответа
+    if state.get('awaiting_rating'):
+        if text in ['1','2','3','4','5']:
+            rating = int(text)
+            user_states[user_id]['awaiting_rating'] = False
+            if rating < 2:
+                await message.answer("Что вас не устраивает? Пожалуйста, опишите проблему.", reply_markup=None)
+                user_states[user_id]['awaiting_problem'] = True
+            else:
+                phrase = random.choice(FAREWELL_PHRASES)
+                await message.answer(phrase, reply_markup=main_menu)
+            return
+        else:
+            await message.answer("Пожалуйста, оцените от 1 до 5.")
+            return
+
+    # Обработка проблемы после плохой оценки
+    if state.get('awaiting_problem'):
+        user_states[user_id]['awaiting_problem'] = False
+        phrase = random.choice(FAREWELL_PHRASES)
+        await message.answer("Спасибо за обратную связь. " + phrase, reply_markup=main_menu)
+        return
+
+    # Главное меню
+    if text == "Как подключить VPN":
+        user_states[user_id]['step'] = 'choose_device'
+        await message.answer("Какое устройство вы используете?", reply_markup=device_menu)
+        return
+
+    if text == "Не работает VPN":
+        user_states[user_id]['step'] = 'choose_server'
+        await message.answer("Какой сервер вы используете?", reply_markup=server_menu)
+        return
+
+    if text == "Сбор ip, логов":
+        await message.answer("ВПН не собирает данных, кроме даты регистрации в боте.")
+        await ask_rating(message)
+        return
+
+    if text == "Когда платная подписка":
+        await message.answer("Возможно будет в октябре-ноябре 2025 года.")
+        await ask_rating(message)
+        return
+
+    if text == "Предложить инновации":
+        user_states[user_id]['step'] = 'ideas'
+        await message.answer("Напишите свои идеи, мы обязательно рассмотрим.")
+        return
+
+    if text == "Как работает РФ сервер":
+        await message.answer("РКН не блокирует данные сервера, тем самым делает возможным просмотр YouTube.")
+        await ask_rating(message)
+        return
+
+    # Обработка выбора устройства
+    if state.get('step') == 'choose_device':
+        if text in ["Android", "MacOS", "IOS"]:
+            await message.answer(
+                "Чтобы подключить ВПН:\n"
+                "1) Сгенерируйте ключ в боте.\n"
+                "2) Скопируйте его.\n\n"
+                "1) Скачайте приложение v2RayTun.\n"
+                "2) Войдите в приложение.\n"
+                "3) Нажмите на + в правом верхнем углу.\n"
+                "4) В окне нажмите 'Ручной ввод'.\n"
+                "5) Вставьте скопированный ключ.\n"
+                "6) Выберите конфигурации.\n"
+                "7) Нажмите кнопку 'Включить'.\n\n"
+                "Готово! Пользуйтесь на здоровье.",
+                reply_markup=resolve_menu
+            )
+            user_states[user_id]['step'] = 'awaiting_resolve'
+            return
+        elif text == "Windows":
+            await message.answer(
+                "Чтобы подключить ВПН:\n"
+                "1) Сгенерируйте ключ в боте.\n"
+                "2) Скопируйте ключ.\n\n"
+                "1) Скачайте приложение hiddify.\n"
+                "2) Войдите в приложение.\n"
+                "3) Нажмите на + в правом верхнем углу.\n"
+                "4) В окне нажмите 'Ручной ввод'.\n"
+                "5) Вставьте скопированный ключ.\n"
+                "6) Выберите конфигурации.\n"
+                "7) Нажмите кнопку 'Включить'.\n\n"
+                "Готово! Пользуйтесь на здоровье.",
+                reply_markup=resolve_menu
+            )
+            user_states[user_id]['step'] = 'awaiting_resolve'
+            return
+        else:
+            await message.answer("Пожалуйста, выберите устройство из списка.", reply_markup=device_menu)
+            return
+
+    # Обработка выбора сервера
+    if state.get('step') == 'choose_server':
+        if text in ["Россия 🇷🇺", "Нидерланды 🇳🇱"]:
+            user_states[user_id]['chosen_server'] = text
+            user_states[user_id]['step'] = 'choose_country'
+            await message.answer("В какой стране вы находитесь?", reply_markup=countries_menu)
+            return
+        else:
+            await message.answer("Пожалуйста, выберите сервер из списка.", reply_markup=server_menu)
+            return
+
+    if state.get('step') == 'choose_country':
+        chosen_server = user_states[user_id].get('chosen_server')
+        if text not in countries_list:
+            await message.answer("Пожалуйста, выберите страну из списка или 'Нет моей страны'.", reply_markup=countries_menu)
+            return
+
+        if chosen_server == "Россия 🇷🇺" and text == "Украина":
+            await message.answer(
+                "Украинские операторы связи блокируют IP данного сервера.\n"
+                "Советуем выбрать Нидерланды 🇳🇱.",
+                reply_markup=resolve_menu
+            )
+        else:
+            await message.answer(
+                "1) Проверьте интернет соединение.\n"
+                "2) Обновите приложение.\n"
+                "3) Включите авиарежим на 5 секунд и выключите его.\n"
+                "4) Выключите ВПН.\n"
+                "5) Перезагрузите устройство.\n"
+                "6) Проверяйте!\n\n"
+                "ВАЖНО! Если у вас устройство Windows, сделайте так:\n"
+                "Рядом с + нажмите на Настройки и выберите VPN вместо системный.",
+                reply_markup=resolve_menu
+            )
+        user_states[user_id]['step'] = 'awaiting_resolve'
+        return
+
+    # Обработка кнопок Решено / Не решено
+    if state.get('step') == 'awaiting_resolve':
+        if text == "Решено":
+            user_states[user_id]['awaiting_rating'] = True
+            user_states[user_id]['step'] = None
+            await message.answer("Пожалуйста, оцените качество обслуживания от 1 до 5.", reply_markup=None)
+            return
+        elif text == "Не решено":
+            user_states[user_id]['step'] = 'contact_manager'
+            await message.answer("Опишите вашу проблему подробно.", reply_markup=None)
+            return
+        else:
+            await message.answer("Пожалуйста, нажмите 'Решено' или 'Не решено'.", reply_markup=resolve_menu)
+            return
+
+    # Приём описания проблемы для менеджера
+    if state.get('step') == 'contact_manager':
+        problem_text = text
+        ticket_code = generate_ticket_code()
+        tickets[ticket_code] = {
+            "user_id": user_id,
+            "problem": problem_text,
+            "status": "new"
+        }
+        user_states[user_id]['step'] = None
+        user_states[user_id]['awaiting_rating'] = True
+        await message.answer(
+            f"Спасибо, ваша заявка принята. Код обращения: {ticket_code}\n"
+            "В течение 5 минут менеджер свяжется с вами.\n"
+            "Пожалуйста, оцените качество обслуживания от 1 до 5."
+        )
+        # Здесь надо отправить менеджеру информацию (через отдельный чат или метод)
+        # Это зависит от вашей инфраструктуры — добавь по необходимости
+        return
+
+    # Обработка предложений (идей)
+    if state.get('step') == 'ideas':
+        user_states[user_id]['step'] = None
+        user_states[user_id]['awaiting_rating'] = True
+        await message.answer("Спасибо за идею! Мы обязательно рассмотрим её.\nПожалуйста, оцените качество обслуживания от 1 до 5.")
+        return
+
+    # Если не поняли, показываем меню
+    await message.answer("Пожалуйста, выберите пункт меню.", reply_markup=main_menu)
+
+async def ask_rating(message: types.Message):
+    user_states[message.from_user.id]['awaiting_rating'] = True
+    await message.answer("Как вам обслуживание? Оцените от 1 до 5.", reply_markup=None)
+
+# Команда для менеджера, чтобы ответить пользователю по коду
+@dp.message_handler(commands=['answer'])
+async def answer_handler(message: types.Message):
+    args = message.text.split(maxsplit=2)
+    if len(args) < 3:
+        await message.answer("Использование: /answer <код> <текст ответа>")
+        return
+    code = args[1]
+    answer_text = args[2]
+    ticket = tickets.get(code)
+    if not ticket:
+        await message.answer("Код обращения не найден.")
+        return
+    user_id = ticket["user_id"]
+    await bot.send_message(user_id, f"Ответ менеджера:\n{answer_text}")
+    await bot.send_message(user_id, "Пожалуйста, нажмите 'Решено' или 'Не решено'.", reply_markup=resolve_menu)
+    await message.answer("Ответ отправлен пользователю.")
+
+if __name__ == "__main__":
+    executor.start_polling(dp)
